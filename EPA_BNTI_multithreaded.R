@@ -1,6 +1,8 @@
 # Writing a script to both rarefy and calculate bNTI for OTU tables
 # Modified from https://github.com/stegen/Stegen_etal_ISME_2013/blob/master/bNTI_Local_Machine.r; Stegen et al, 2013
 # Modified from https://github.com/stegen/Stegen_etal_ISME_2013/blob/master/Raup_Crick_Abundance.r; Stegen et al, 2013
+# RED 2017; danczak.6@osu.edu
+
 
 local = 1 # Whether on the server or not
 micron = 1 # Whether or not to include the 0.1um fraction (1 is include, 0 is exclude)
