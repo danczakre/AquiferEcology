@@ -1,4 +1,6 @@
-# Separated this from the Ecological Modeling script because it was a bit too much for the computer to handle
+# This script generates performs the Mantel correlation to determine if there is a phylogenetic signal in our system ###
+# RED 2017; danczak.6@osu.edu
+
 setwd("/home/rdanczak/EPA_16S_Analysis/No_Pynast_bNTI")
 # setwd("/Users/danczak.6/Documents/Wilkins Lab/Ohio EPA Project/Sequencing Data/16S Data/")
 
