@@ -1,5 +1,5 @@
-# Processing the Merged EPA OTU Table
-# The reason for the reupdate was to generate static color vectors so my figures always come out the same - I was getting too easily confused
+### This script processing the OTU table to generate some ecological information ###
+# RED 2017; danczak.6@osu.edu
 
 #---------------- Switches ----------------#
 Var.Num = 5 # Change if the number of variables/factors in the first few columns changes
