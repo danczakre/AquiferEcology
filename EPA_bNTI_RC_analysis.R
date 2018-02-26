@@ -2,6 +2,7 @@
 # RED 2017; danczak.6@osu.edu
 
 library(reshape2) # Needed to reorganize the data
+library(ecodist) # Primarily needed for the Mantel test (so far...)
 library(ggplot2) # For plotting
 library(Hmisc) # For rcorr
 library(yarrr) # For the wonderful pirate plots
@@ -61,6 +62,9 @@ geo = geo[,-1:-5]
 
 ### Generating pairwise geochemistry comparisons ###
 geo.melt = lapply(geo, function(x) abs(outer(x,x,'-'))) # Calculating the pairwise comparison for each variable outputting a list
+
+geo.dist = geo.melt # Storing the "dissimilarity" matrix for the geochemical values
+
 geo.melt = lapply(geo.melt, function(x) {x[upper.tri(x, diag = T)] = NA; x}) # Changing the upper triangle to NA's
 geo.melt = lapply(geo.melt, function(x) {row.names(x) <- row.names(geo); x}) # Assigns row names to matrices in list
 geo.melt = lapply(geo.melt, function(x) {colnames(x) <- row.names(geo); x}) # Assigns column names to the matrices in the list
@@ -169,71 +173,49 @@ pirateplot(value~names, data = raup.alt, pal = c(rgb(240,166,166, maxColorValue 
            point.o = 1, inf.f.o = 0.2, bean.b.o = 0, bean.f.o = 0.75, main = "Within-well Raup-Crick(BC)", xlab = NULL, ylab = "RC-BC")
 abline(h = c(-0.95,0.95), col = "red", lty = 2, lwd = 2)
 
-### Setting up bNTI/geochemistry correlations ###
-if(corr){
+### Generating Mantel correlations ###
+mant = NULL
+sig.names = NULL
+
+for(i in 1:length(geo.alt)){
   
-  sig = NULL
-  sig.names = NULL # Creating null variables which will come to store my signifcance data
+  temp = geo.dist[[i]] # Storing the geochem matrix at hand into a temporary variable to save space
   
-  for(i in 1:length(geo.alt)){
+  if(length(temp[,1]) < length(bNTI[,1])){
     
-    temp = geo.alt[[i]] # Storing the geochem matrix at hand into a temporary variable to save space
+    sprintf("%s correlation was skipped due to missing values", names(geo.alt[i])) # Printing the skipped geochem variable
     
-    if(length(temp[,1]) < length(bNTI.alt[,1])){
+  } else {
+    
+    for(j in 1:length(unique.factors)){
+      w = grep(unique.factors[j], bNTI$names) # Finding the locations for the unique factors at hand
       
-      sprintf("%s correlation was skipped due to missing values", names(geo.alt[i])) # Printing the skipped geochem variable
-      
-    } else {
-      
-      for(j in 1:length(unique.factors)){
-        w = which(bNTI.alt$names %in% unique.factors[j]) # Finding the locations for the unique factors at hand
+      if(length(w) > 0){
+        if(sd(temp[w,w], na.rm = T) == 0){ # This if switch checks to make sure that the data is not all 0
+          
+          mant = rbind(mant, c("0", "0", "0", "0", "0", "0")) # Dummy vector to fill abent data
+          
+        } else {
+          
+        m = mantel(as.dist(temp[w,w])~as.dist(bNTI[w,w]), nperm = 9999, mrank = T) # Running spearman correlation, permuted
+        mant = rbind(mant, m)
         
-        if(length(w) > 0){
-          q = rcorr(temp$value[w], bNTI.alt$value[w]) # Determining the linear r/p-values
-          q = c(q$r[1,2], q$P[1,2]) # Storing those values
-          sig = rbind(sig, q) # Storing those values, permanently
-          
-          sig.names = rbind(sig.names,
-                            sprintf("%s correlation in %s", names(geo.alt)[i], unique.factors[j])) # Needed to save the names so I could apply them as row names later
-          if(is.nan(q[2])){
-            
-            print("Writing error codes is annoying...")  
-            
-          } else if(q[2] < 0.05){
-            
-            pdf(sprintf("W_%s_%s.pdf",names(geo.alt)[i], unique.factors[j]), width = 6.5, height = 3.5)
-            
-            plot(temp$value[w], bNTI.alt$value[w], ylab = "bNTI", xlab = names(geo.alt)[i], 
-                 main = sprintf("Within-well: %s correlation in %s", names(geo.alt)[i], unique.factors[j])) # Generation of the actual plot
-            
-            if(sum(temp$value[w]) == 0 | sum(bNTI.alt$value[w]) == 0){
-              legend("bottomright", 
-                     sprintf("No r/p-value for %s v %s", names(geo.alt)[i], unique.factors[j]),
-                     bty = "n")
-            } else {
-              legend("bottomright", sprintf("r: %s  p: %s", q[1], q[2]), bty = "n") # Printing the r/p-values onto the graphs
-              abline(lm(bNTI.alt$value[w]~temp$value[w]), col = "blue", lwd = 2) # Plotting the linear model
-            } # Needed to code a failsafe in the even that a variable only had 0's
-            
-            abline(h = c(-2,2), col = "red", lty = 2, lwd = 2) # Plotting significance boundaries
-            
-            dev.off()
-          } # This if-switch will only generate figures that have signficant p-values
-          
-          rm('w', 'q')
-        } # If loop to ensure only the right correlations go through, i.e. LiPW don't have any values as they were point measurments
-      } # End of the inner for-loop controlling the plotting and correlations
-    } # Ending of the out if-loop which controls which geo chem variables are going to proceed
-    rm('temp')
-  } # Wrapping up the whole thing; outer for-loop looping through the different geochemical parameters
-  
-  row.names(sig) = sig.names
-  rm('sig.names')
-  
-  sig[,2] = p.adjust(sig[,2], method = "fdr")
-  write.csv(sig, "Significance_Within-Well.csv", quote = F)
-  
-} # Switch to perform correlations or not - tired of the figures regenerating
+        }
+      }
+      
+      sig.names = rbind(sig.names,
+                        sprintf("%s correlation in %s", names(geo.alt)[i], unique.factors[j]))
+    }
+  }
+}
+
+mant = apply(mant, 2, as.numeric)
+
+w = which(mant[,4] <= 0.05) # Filtering out insignificant comparisons
+mant = mant[w,]
+sig.names = sig.names[w,]
+
+row.names(mant) = sig.names # Setting names
 
 #-------------------------------------------#
 #--- Looking at between well comparisons ---#
@@ -431,89 +413,6 @@ pirateplot(value~names, data = raup.alt, pal = c(rgb(240,166,166, maxColorValue 
            point.o = 1, inf.f.o = 0.2, bean.b.o = 0, bean.f.o = 0.75, main = "Between-well Raup-Crick(BC)", xlab = NULL, ylab = "RC-BC")
 abline(h = c(-0.95,0.95), col = "red", lty = 2, lwd = 2)
 
-### Setting up bNTI/geochemistry correlations ###
-if(corr){
-  
-  bw.sig = NULL
-  bw.sig.names = NULL # Creating null variables which will come to store my signifcance data
-  
-  for(i in 1:length(geo.alt)){
-    
-    temp = geo.alt[[i]] # Storing the geochem matrix at hand into a temporary variable to save space
-    
-    if(length(temp[,1]) < length(bNTI.alt[,1])){
-      
-      sprintf("%s correlation was skipped due to missing values", names(geo.alt[i])) # Printing the skipped geochem variable
-      
-    } else {
-      
-      for(j in 1:length(unique.factors)){
-        w = which(bNTI.alt$names %in% unique.factors[j]) # Finding the locations for the unique factors at hand
-        
-        if(length(w) > 0){
-          q = rcorr(temp$value[w], bNTI.alt$value[w]) # Determining the linear r/p-values
-          q = c(q$r[1,2], q$P[1,2]) # Storing those values
-          bw.sig = rbind(bw.sig, q) # Storing those values, permanently
-          
-          bw.sig.names = rbind(bw.sig.names,
-                               sprintf("%s correlation in %s", names(geo.alt)[i], unique.factors[j])) # Needed to save the names so I could apply them as row names later
-          if(is.nan(q[2])){
-            print("I don't want to write anything else right now...")
-          } else if (q[2] < 0.05){
-            pdf(sprintf("BW_%s_%s.pdf", names(geo.alt)[i], unique.factors[j]), width = 6.5, height = 3.5)
-            
-            plot(temp$value[w], bNTI.alt$value[w], ylab = "bNTI", xlab = names(geo.alt)[i], 
-                 main = sprintf("Between-well: %s correlation in %s", names(geo.alt)[i], unique.factors[j]), type = "n") # Generation of the actual plot
-            
-            if(length(grep("Athens", bNTI.alt$variable[w])) >= 1){
-              r = grep("Athens", bNTI.alt$variable[w])
-              points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(190,38,37, maxColorValue = 255))
-            }
-            
-            if(length(grep("Greene", bNTI.alt$variable[w])) >= 1){
-              r = grep("Greene", bNTI.alt$variable[w])
-              points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(0,97,28, maxColorValue = 255))
-            }
-            
-            if(length(grep("Licking", bNTI.alt$variable[w])) >= 1){
-              r = grep("Licking", bNTI.alt$variable[w])
-              points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(13,79,139, maxColorValue = 255))
-            }
-            
-            if(length(grep("PW", bNTI.alt$variable[w])) >= 1){
-              r = grep("PW", bNTI.alt$variable[w])
-              points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(13,79,139, maxColorValue = 255))
-            }
-            
-            if(sum(temp$value[w]) == 0 | sum(bNTI.alt$value[w]) == 0){
-              legend("bottomright", 
-                     sprintf("No r/p-value for %s v %s", names(geo.alt)[i], unique.factors[j]),
-                     bty = "n")
-            } else {
-              legend("bottomright", sprintf("r: %s  p: %s", q[1], q[2]), bty = "n") # Printing the r/p-values onto the graphs
-              abline(lm(bNTI.alt$value[w]~temp$value[w]), col = "blue", lwd = 2) # Plotting the linear model
-            } # Needed to code a failsafe in the even that a variable only had 0's
-            
-            abline(h = c(-2,2), col = "red", lty = 2, lwd = 2) # Plotting significance boundaries
-            
-            dev.off()
-          } # This if switch ensures only significant figures are plotted
-          
-          rm('w', 'q', 'r')
-        } # If loop to ensure only the right correlations go through, i.e. LiPW don't have any values as they were point measurments
-      } # End of the inner for-loop controlling the plotting and correlations
-    } # Ending of the out if-loop which controls which geo chem variables are going to proceed
-    rm('temp')
-  } # Wrapping up the whole thing; outer for-loop looping through the different geochemical parameters
-  
-  row.names(bw.sig) = bw.sig.names
-  rm('bw.sig.names')
-  
-  bw.sig[,2] = p.adjust(bw.sig[,2], method = "fdr")
-  write.csv(bw.sig, "Significance_Between-Well.csv", quote = F)
-  
-} # Same reason as above - tired of correlations running every time I test the completeness of the script
-
 
 #----------------------------------#
 #--- Looking at total fractions ---#
@@ -691,87 +590,20 @@ pirateplot(value~names, data = raup.alt, pal = c(rgb(240,166,166, maxColorValue 
            point.o = 1, inf.f.o = 0.2, bean.b.o = 0, bean.f.o = 0.75, main = "Between-well w/ self Raup-Crick(BC)", xlab = NULL, ylab = "RC-BC")
 abline(h = c(-0.95,0.95), col = "red", lty = 2, lwd = 2)
 
-### Setting up bNTI/geochemistry correlations ###
-if(corr){
-  
-  tot.sig = NULL
-  tot.sig.names = NULL # Creating null variables which will come to store my signifcance data
-  
-  for(i in 1:length(geo.alt)){
-    
-    temp = geo.alt[[i]] # Storing the geochem matrix at hand into a temporary variable to save space
-    
-    if(length(temp[,1]) < length(bNTI.alt[,1])){
-      
-      sprintf("%s correlation was skipped due to missing values", names(geo.alt[i])) # Printing the skipped geochem variable
-      
-    } else {
-      
-      w = grep("0.2", bNTI.alt$names) # Finding the locations for the unique factors at hand
-      
-      if(length(w) > 0){
-        q = rcorr(temp$value[w], bNTI.alt$value[w]) # Determining the linear r/p-values
-        q = c(q$r[1,2], q$P[1,2]) # Storing those values
-        tot.sig = rbind(tot.sig, q) # Storing those values, permanently
-        
-        tot.sig.names = rbind(tot.sig.names,
-                              sprintf("%s correlation", names(geo.alt)[i])) # Needed to save the names so I could apply them as row names later
-        if(is.nan(q[2])){
-          print("I don't want to write anything else right now...")
-        } else if (q[2] < 0.05){
-          pdf(sprintf("Total_%s.pdf", names(geo.alt)[i]), width = 6.5, height = 3.5)
-          
-          plot(temp$value[w], bNTI.alt$value[w], ylab = "bNTI", xlab = names(geo.alt)[i], 
-               main = sprintf("Total %s correlation", names(geo.alt)[i]), type = "n") # Generation of the actual plot
-          
-          if(length(grep("Athens", bNTI.alt$names[w])) >= 1){
-            r = grep("Athens", bNTI.alt$names[w])
-            points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(190,38,37, maxColorValue = 255))
-          }
-          
-          if(length(grep("Greene", bNTI.alt$names[w])) >= 1){
-            r = grep("Greene", bNTI.alt$names[w])
-            points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(0,97,28, maxColorValue = 255))
-          }
-          
-          if(length(grep("Licking", bNTI.alt$names[w])) >= 1){
-            r = grep("Licking", bNTI.alt$names[w])
-            points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(13,79,139, maxColorValue = 255))
-          }
-          
-          if(length(grep("PW", bNTI.alt$names[w])) >= 1){
-            r = grep("PW", bNTI.alt$names[w])
-            points(temp$value[w][r], bNTI.alt$value[w][r], pch = 16, col = rgb(13,79,139, maxColorValue = 255))
-          }
-          
-          if(sum(temp$value[w]) == 0 | sum(bNTI.alt$value[w]) == 0){
-            legend("bottomright", 
-                   sprintf("No r/p-value for %s v %s", names(geo.alt)[i], unique.factors[j]),
-                   bty = "n")
-          } else {
-            legend("bottomright", sprintf("r: %s  p: %s", q[1], q[2]), bty = "n") # Printing the r/p-values onto the graphs
-            abline(lm(bNTI.alt$value[w]~temp$value[w]), col = "blue", lwd = 2) # Plotting the linear model
-          } # Needed to code a failsafe in the even that a variable only had 0's
-          
-          abline(h = c(-2,2), col = "red", lty = 2, lwd = 2) # Plotting significance boundaries
-          
-          dev.off()
-        } # This if switch ensures only significant figures are plotted
-        
-        rm('w', 'q', 'r')
-      } # If loop to ensure only the right correlations go through, i.e. LiPW don't have any values as they were point measurments
-    } # Ending of the out if-loop which controls which geo chem variables are going to proceed
-    rm('temp')
-  } # Wrapping up the whole thing; outer for-loop looping through the different geochemical parameters
-  
-  row.names(tot.sig) = tot.sig.names
-  rm('tot.sig.names')
-  
-  tot.sig[,2] = p.adjust(tot.sig[,2], method = "fdr")
-  write.csv(tot.sig, "Significance_Total.csv", quote = F)
-  
-} # Same reason as above - tired of correlations running every time I test the completeness of the script
+### Locking at between well Mantel comparisons ###
+w = grep(0.2, bNTI$names) # Ensuring that only the 0.2 fraction is being examined
+bNTI.bet = bNTI[w,w] # Selecting those subsets of data
+geo.bet = lapply(geo.dist, function(x) x[w,w])
 
+mant.bet = NULL
+
+for(i in 1:length(geo.alt)){
+  mant.bet = rbind(mant.bet, mantel(as.dist(geo.bet[[i]])~as.dist(bNTI.bet), nperm = 9999, mrank = T))
+}
+
+row.names(mant.bet) = names(geo.alt)
+
+rm("bNTI.bet", "raup.alt", "bNTI.alt", "w")
 
 #------------------------------#
 #--- Looking at the heatmap ---#
@@ -850,20 +682,6 @@ p = ggplot(w, aes_string(x = "names", y = "variable"))+ # Heat map magic
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 p
 
-# Looking only at the 0.1 filters
-
-w = bNTI.heat[grep("0\\.1", bNTI.heat$names),]
-w = w[grep("e.0.1|s.0.1|g.0.1|W.0.1", w$variable),]
-w$variable = factor(w$variable, levels = var.ord[grep("e.0.1|s.0.1|g.0.1|W.0.1", var.ord)])
-
-p = ggplot(w, aes_string(x = "names", y = "variable"))+
-  geom_tile(aes(fill = value))+
-  scale_fill_gradient2(low = "steelblue", high = "red", mid = "gray95")+
-  scale_y_discrete(limits = rev(levels(w$variable)))+ # Just matching the order of labels on the x-axis
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
-p
-
-
 ### Raup-Crick values second ###
 
 raup.heat = melt(raup.bc, id.vars = "names") # Melting the data by the newly appended row names
@@ -893,15 +711,60 @@ p = ggplot(w, aes_string(x = "names", y = "variable"))+ # Heat map magic
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 p
 
-# Looking only at the 0.1 filters
+############################################################
+### Generating percentages from bNTI and Raup-Crick data ###
+############################################################
+## Assigning a percent explained by selection/neutral processes to each sample
 
-w = raup.heat[grep("0\\.1", raup.heat$names),]
-w = w[grep("e.0.1|s.0.1|g.0.1|W.0.1", w$variable),]
-w$variable = factor(w$variable, levels = var.ord[grep("e.0.1|s.0.1|g.0.1|W.0.1", var.ord)])
+# Data sorting and whatnot
+x = bNTI[,-length(bNTI[1,])] # bNTI without the names vector tagged on
+y = raup.bc[,-length(raup.bc[1,])] # Raup-Crick without the names vector tagged on
 
-p = ggplot(w, aes_string(x = "names", y = "variable"))+
-  geom_tile(aes(fill = value))+
-  scale_fill_gradient2(low = "purple", high = "darkgreen", mid = "gray95")+
-  scale_y_discrete(limits = rev(levels(w$variable)))+ # Just matching the order of labels on the x-axis
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
-p
+w = grep("e.0.2|s.0.2|g.0.2", row.names(x))
+x = x[w,w]
+y = y[w,w]
+
+# Assigning names to begin calculating percentages
+model = matrix(nrow = length(x[,1]), ncol = length(x[1,]), data = as.character(NA))
+
+model[x > 2] = "Variable Selection"
+model[x < -2] = "Homogenizing Selection"
+model[y < -0.95 & x > -2 & x < 2] = "Homogenizing Dispersal"
+model[y > 0.95 & x > -2 & x < 2] = "Dispersal Limitation"
+model[y <0.95 & y > -0.95 & x > -2 & x < 2] = "Undominated"
+
+dimnames(model) = dimnames(x)
+
+rm("x", "y", "w")
+
+# Compiling model results for all comparisons
+model.results = NULL
+model.results = cbind(model.results, apply(model, 1, function(x) length(which(x %in% "Variable Selection"))/(length(x)-length(which(is.na(x))))))
+model.results = cbind(model.results, apply(model, 1, function(x) length(which(x %in% "Homogenizing Selection"))/(length(x)-length(which(is.na(x))))))
+model.results = cbind(model.results, apply(model, 1, function(x) length(which(x %in% "Homogenizing Dispersal"))/(length(x)-length(which(is.na(x))))))
+model.results = cbind(model.results, apply(model, 1, function(x) length(which(x %in% "Dispersal Limitation"))/(length(x)-length(which(is.na(x))))))
+model.results = cbind(model.results, apply(model, 1, function(x) length(which(x %in% "Undominated"))/(length(x)-length(which(is.na(x))))))
+
+row.names(model.results) = row.names(model)
+colnames(model.results) = c("Variable Selection", "Homogenizing Selection", "Homogenizing Dispersal", "Dispersal Limitation", "Undominated")
+
+# Compiling model results for self comparisons only
+x = c("Athens", "Greene", "Licking")
+model.self = NULL
+
+for(i in 1:length(x)){
+  w = grep(x[i], row.names(model))
+  temp = model[w,w]
+  
+  model.temp = NULL
+  model.temp = cbind(model.temp, apply(temp, 1, function(x) length(which(x %in% "Variable Selection"))/(length(x)-length(which(is.na(x))))))
+  model.temp = cbind(model.temp, apply(temp, 1, function(x) length(which(x %in% "Homogenizing Selection"))/(length(x)-length(which(is.na(x))))))
+  model.temp = cbind(model.temp, apply(temp, 1, function(x) length(which(x %in% "Homogenizing Dispersal"))/(length(x)-length(which(is.na(x))))))
+  model.temp = cbind(model.temp, apply(temp, 1, function(x) length(which(x %in% "Dispersal Limitation"))/(length(x)-length(which(is.na(x))))))
+  model.temp = cbind(model.temp, apply(temp, 1, function(x) length(which(x %in% "Undominated"))/(length(x)-length(which(is.na(x))))))
+  
+  model.self = rbind(model.self, model.temp)
+  rm("temp", "model.temp")
+}
+
+colnames(model.self) = c("Variable Selection", "Homogenizing Selection", "Homogenizing Dispersal", "Dispersal Limitation", "Undominated")

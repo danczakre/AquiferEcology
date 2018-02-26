@@ -1,8 +1,6 @@
 # Separated this from the Ecological Modeling script because it was a bit too much for the computer to handle
-# RED 2017; danczak.6@osu.edu
-
-
 setwd("/home/rdanczak/EPA_16S_Analysis/No_Pynast_bNTI")
+# setwd("/Users/danczak.6/Documents/Wilkins Lab/Ohio EPA Project/Sequencing Data/16S Data/")
 
 library(vegan)
 library(picante)
@@ -14,7 +12,7 @@ is.wholenumber <- function(x, tol = .Machine$double.eps^0.5)  abs(x - round(x)) 
 tree = read.tree("Raw_EPA_OTU_Tree.tre")
 data = read.delim("Raw_EPA_no_pynast.txt", row.names = 1)
 factors = read.csv("OTU_table_factors.csv", row.names = 1) # Importing factors to make the averaging of replicates possible
-table = read.csv("Water_Table.csv", row.names = 1)
+table = read.csv("ORP_Table.csv", row.names = 1)
 
 # Doing some data cleaning
 data = data[,-which(colnames(data) %in% c("YB04","BL01","BL02"))] 
@@ -40,6 +38,13 @@ data = as.data.frame(t(data.avg))
 
 rm('data.avg')
 
+### Removing the 0.1um filter data from the dataset
+w = grep(" 0.1", row.names(data))
+data = data[-w,]
+
+table = as.matrix(table)
+table = as.data.frame(table[-w,])
+
 ### Need to rarefy or else cophenetic isn't happy
 data = as.matrix(data)
 data[which(is.wholenumber(data) == FALSE)] = data[which(is.wholenumber(data) == FALSE)]+0.5 # Rounding the 0.5s up as half a sequence is a sequence - it was present at least once
@@ -58,7 +63,7 @@ tree = phylo$phy
 
 print("Finished rarefying...hopefully")
 ### Figuring out the abundance-weighted water table mean, this part was picked up from Stegen 2012
-r = apply(data, 2, function(x) x*table) # Weighting depths by abudances
+r = apply(data, 2, function(x) x*table) # Weighting ORP by abudances
 x = matrix(unlist(r), ncol = length(r), byrow = F)
 y = apply(x, 2, mean, na.rm = T) # Determing the mean of the column (i.e. the mean of abundance-weighted depths)
 n = abs(outer(y, y, '-')) # Pairwise comparison of the abundance-weighted depths
