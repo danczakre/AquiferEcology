@@ -1,4 +1,5 @@
 ### Processing the cohesion data
+# RED 2017; danczak.6@osu.edu
 
 # Loading in packages
 library(reshape2)
